@@ -1,0 +1,587 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>When Evacuation Is Uneven</title>
+
+  <!-- Mapbox GL JS -->
+  <link href="https://api.mapbox.com/mapbox-gl-js/v3.3.0/mapbox-gl.css" rel="stylesheet" />
+
+  <!-- Google Fonts: Playfair Display (headlines) + Source Serif 4 (body) -->
+  <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@700;900&family=Source+Serif+4:ital,wght@0,300;0,400;0,600;1,300;1,400&display=swap" rel="stylesheet" />
+
+  <style>
+    /* ==========================================================
+       RESET & BASE
+    ========================================================== */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    html { scroll-behavior: smooth; }
+    body {
+      font-family: 'Source Serif 4', Georgia, serif;
+      background: #f5f0eb;
+      color: #0d1b2a;
+      font-size: 17px;
+      line-height: 1.75;
+      -webkit-font-smoothing: antialiased;
+    }
+    a { color: #457b9d; text-decoration: none; }
+    a:hover { text-decoration: underline; }
+    p + p { margin-top: 1rem; }
+    strong { font-weight: 600; color: #0d1b2a; }
+    em { font-style: italic; }
+
+    /* ==========================================================
+       LOADING OVERLAY
+       Shown while Mapbox tiles load; hidden by JS on map 'load'
+    ========================================================== */
+    #loading-overlay {
+      position: fixed; inset: 0;
+      background: #0d1b2a;
+      display: flex; flex-direction: column;
+      align-items: center; justify-content: center;
+      z-index: 9999; gap: 1rem;
+    }
+    #loading-overlay.hidden { display: none; }
+    #loading-overlay p {
+      color: rgba(255,255,255,0.5);
+      font-size: 0.85rem; letter-spacing: 0.12em;
+    }
+    .spinner {
+      width: 36px; height: 36px;
+      border: 3px solid rgba(255,255,255,0.12);
+      border-top-color: #e76f51;
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* ==========================================================
+       HERO
+    ========================================================== */
+    .hero {
+      min-height: 100vh;
+      display: flex; align-items: center; justify-content: center;
+      text-align: center; padding: 4rem 2rem;
+      background: linear-gradient(160deg, #0d1b2a 0%, #1d3557 100%);
+      border-bottom: 4px solid #e76f51;
+      position: relative; overflow: hidden;
+    }
+    /* Subtle texture overlay */
+    .hero::before {
+      content: '';
+      position: absolute; inset: 0;
+      background: radial-gradient(ellipse at 60% 40%, rgba(231,111,81,0.08) 0%, transparent 60%);
+      pointer-events: none;
+    }
+    .hero-inner { max-width: 680px; position: relative; z-index: 1; }
+    .eyebrow {
+      font-size: 0.72rem; font-weight: 700;
+      letter-spacing: 0.22em; text-transform: uppercase;
+      color: #e76f51; margin-bottom: 1.2rem;
+    }
+    .hero h1 {
+      font-family: 'Playfair Display', serif;
+      font-size: clamp(2.8rem, 8vw, 5.5rem);
+      font-weight: 900; color: #fff;
+      line-height: 1.05; margin-bottom: 1.3rem;
+      letter-spacing: -0.01em;
+    }
+    .hero .subtitle {
+      font-size: 1.05rem; color: rgba(255,255,255,0.6);
+      line-height: 1.65; margin-bottom: 0.8rem;
+    }
+    .hero .byline {
+      font-size: 0.78rem; color: rgba(255,255,255,0.35);
+      margin-bottom: 2.8rem; letter-spacing: 0.06em;
+    }
+    .scroll-cue {
+      display: inline-block; color: rgba(255,255,255,0.45);
+      font-size: 0.8rem; letter-spacing: 0.1em;
+      text-decoration: none; transition: color 0.2s;
+      animation: bob 2.2s ease-in-out infinite;
+    }
+    .scroll-cue:hover { color: rgba(255,255,255,0.75); text-decoration: none; }
+    @keyframes bob { 0%,100%{transform:translateY(0)} 50%{transform:translateY(7px)} }
+
+    /* ==========================================================
+       INTRO
+    ========================================================== */
+    .intro { padding: 5.5rem 2rem; background: #faf7f2; }
+    .intro-inner { max-width: 660px; margin: 0 auto; }
+    .pull-quote {
+      font-family: 'Playfair Display', serif;
+      font-size: 1.28rem; font-style: italic; font-weight: 700;
+      color: #1d3557; line-height: 1.55;
+      margin-bottom: 2.2rem; padding-left: 1.3rem;
+      border-left: 3px solid #e76f51;
+    }
+    .hint {
+      margin-top: 1.8rem; padding: 0.85rem 1.2rem;
+      background: #eef2f7;
+      border: 1px solid #d0dcea;
+      border-radius: 6px;
+      font-size: 0.88rem; color: #457b9d;
+    }
+
+    /* ==========================================================
+       SCROLLYTELLING LAYOUT
+       Left: scrollable step cards   Right: sticky map
+    ========================================================== */
+    .scroll-container {
+      display: flex; flex-direction: row;
+      align-items: flex-start; width: 100%;
+      background: #f5f0eb;
+    }
+    /* Scrollable step column */
+    .steps {
+      flex: 0 0 420px; width: 420px;
+      padding: 0 2rem; position: relative; z-index: 10;
+    }
+    /* Sticky map column */
+    .map-sticky {
+      flex: 1; position: sticky; top: 0;
+      height: 100vh; overflow: hidden;
+    }
+    #map { width: 100%; height: 100%; }
+
+    /* ==========================================================
+       STEP CARDS
+    ========================================================== */
+    .step {
+      min-height: 85vh; display: flex;
+      align-items: center; padding: 3rem 0;
+      opacity: 0.28; transition: opacity 0.4s ease;
+    }
+    .step.is-active { opacity: 1; }
+    .step-content {
+      background: #fff;
+      border: 1px solid rgba(0,0,0,0.07);
+      border-radius: 10px; padding: 2rem 1.8rem;
+      width: 100%;
+      box-shadow: 0 4px 22px rgba(0,0,0,0.09);
+    }
+    .step-label {
+      display: block; font-size: 0.68rem; font-weight: 700;
+      letter-spacing: 0.16em; text-transform: uppercase;
+      color: #e76f51; margin-bottom: 0.7rem;
+    }
+    .step-content h2 {
+      font-family: 'Playfair Display', serif;
+      font-size: 1.38rem; color: #0d1b2a;
+      margin-bottom: 0.9rem; line-height: 1.25;
+    }
+    .step-content p { font-size: 0.93rem; color: #2d3a45; line-height: 1.72; }
+
+    /* ==========================================================
+       STAT BOXES
+    ========================================================== */
+    .stat-box {
+      margin: 1.5rem 0; padding: 1.1rem 1.3rem;
+      border-left: 3px solid #c1121f;
+      background: #fff5f3; border-radius: 4px;
+      font-size: 0.88rem; color: #2d3a45;
+    }
+    .stat-number {
+      display: block;
+      font-family: 'Playfair Display', serif;
+      font-size: 2.9rem; font-weight: 900;
+      color: #c1121f; line-height: 1; margin-bottom: 0.4rem;
+    }
+    .stat-label { font-size: 0.84rem; color: #5c6670; line-height: 1.5; }
+
+    /* Callout box for the QGIS 132 finding */
+    .finding-box {
+      margin: 1.4rem 0; padding: 1rem 1.3rem;
+      background: #f0f4ff;
+      border: 1px solid #c5d3f0;
+      border-radius: 6px;
+      font-size: 0.88rem; color: #1d3557; line-height: 1.6;
+    }
+    .finding-box strong { color: #1d3557; }
+
+    /* ==========================================================
+       MAP UI — legend, tooltip, prompt
+    ========================================================== */
+    .map-prompt {
+      position: absolute; top: 1rem; left: 50%;
+      transform: translateX(-50%);
+      background: rgba(13,27,42,0.80);
+      color: rgba(255,255,255,0.72);
+      border-radius: 20px; padding: 0.4rem 1.1rem;
+      font-size: 0.76rem; pointer-events: none; z-index: 10;
+      white-space: nowrap; backdrop-filter: blur(4px);
+      letter-spacing: 0.04em;
+    }
+    #map-legend {
+      position: absolute; bottom: 1.8rem; left: 1rem;
+      background: rgba(255,255,255,0.96);
+      border: 1px solid rgba(0,0,0,0.09);
+      border-radius: 8px; padding: 1rem 1.2rem;
+      min-width: 195px; max-width: 245px;
+      font-size: 0.78rem; color: #0d1b2a; z-index: 10;
+      box-shadow: 0 3px 14px rgba(0,0,0,0.10);
+    }
+    .legend-title {
+      font-family: 'Playfair Display', serif;
+      font-weight: 700; font-size: 0.82rem;
+      color: #0d1b2a; margin-bottom: 0.65rem;
+      padding-bottom: 0.45rem;
+      border-bottom: 1px solid rgba(0,0,0,0.07);
+    }
+    .legend-item {
+      display: flex; align-items: center;
+      gap: 0.5rem; margin-bottom: 0.38rem; line-height: 1.4;
+    }
+    .legend-dot {
+      width: 10px; height: 10px; border-radius: 50%;
+      flex-shrink: 0; border: 1px solid rgba(0,0,0,0.12);
+    }
+    .legend-swatch {
+      width: 20px; height: 11px;
+      border-radius: 2px; flex-shrink: 0;
+    }
+    .legend-dash {
+      width: 20px; height: 0; flex-shrink: 0;
+      border-top: 2px dashed currentColor;
+    }
+    #map-tooltip {
+      position: absolute; display: none;
+      background: rgba(13,27,42,0.93);
+      color: #fff; border-radius: 6px;
+      padding: 0.65rem 0.95rem;
+      font-size: 0.78rem; pointer-events: none;
+      z-index: 200; max-width: 210px;
+      box-shadow: 0 4px 16px rgba(0,0,0,0.28);
+    }
+    .tooltip-name {
+      font-family: 'Playfair Display', serif;
+      font-weight: 700; font-size: 0.88rem;
+      color: #fff; margin-bottom: 0.28rem;
+    }
+    .tooltip-row { color: rgba(255,255,255,0.65); line-height: 1.5; }
+
+    /* ==========================================================
+       METHODS SECTION
+    ========================================================== */
+    .methods {
+      padding: 5.5rem 2rem;
+      background: #1d3557; color: rgba(255,255,255,0.82);
+    }
+    .methods-inner { max-width: 860px; margin: 0 auto; }
+    .methods h2 {
+      font-family: 'Playfair Display', serif;
+      font-size: 1.9rem; color: #fff;
+      text-align: center; margin-bottom: 2.5rem;
+    }
+    .methods-grid {
+      display: grid; grid-template-columns: repeat(2,1fr); gap: 1.4rem;
+    }
+    .method-card {
+      background: rgba(255,255,255,0.07);
+      border: 1px solid rgba(255,255,255,0.1);
+      border-radius: 10px; padding: 1.5rem;
+      transition: border-color 0.2s;
+    }
+    .method-card:hover { border-color: rgba(255,255,255,0.22); }
+    .method-icon { font-size: 1.35rem; margin-bottom: 0.75rem; }
+    .method-card h3 {
+      font-size: 0.95rem; color: #fff;
+      margin-bottom: 0.5rem; font-weight: 600;
+    }
+    .method-card p { font-size: 0.84rem; line-height: 1.65; }
+    .method-card a { color: #f4a261; }
+
+    /* ==========================================================
+       FOOTER
+    ========================================================== */
+    footer {
+      padding: 1.8rem; text-align: center;
+      font-size: 0.78rem; color: #666;
+      background: #0d1b2a;
+    }
+    footer a { color: #666; text-decoration: underline; }
+    footer a:hover { color: #aaa; }
+  </style>
+</head>
+<body>
+
+  <!-- LOADING OVERLAY — hidden by JS once map tiles load -->
+  <div id="loading-overlay">
+    <div class="spinner"></div>
+    <p>Loading NYC data…</p>
+  </div>
+
+  <!-- ========================================================
+    HERO SECTION
+  ======================================================== -->
+  <header class="hero">
+    <div class="hero-inner">
+      <p class="eyebrow">NYC Public Housing &amp; Hurricane Risk</p>
+      <h1>When Evacuation<br>Is Uneven</h1>
+      <p class="subtitle">
+        Mapping hurricane risk and evacuation access gaps<br>
+        for NYCHA developments in New York City
+      </p>
+      <p class="byline">By Allison Han &nbsp;·&nbsp; NYU Web Mapping · 2026</p>
+      <a class="scroll-cue" href="#intro">↓ &nbsp;Scroll to explore</a>
+    </div>
+  </header>
+
+  <!-- ========================================================
+    INTRO SECTION
+  ======================================================== -->
+  <section class="intro" id="intro">
+    <div class="intro-inner">
+      <p class="pull-quote">
+        "In New York City, hurricane risk is not only about where water reaches —
+        it is also about <em>who can realistically get to safety.</em>"
+      </p>
+      <p>
+        When hurricane risk is mapped in New York City, the focus usually falls on the coastline,
+        flood zones, or evacuation areas. But for residents of public housing, another question
+        matters just as much: when a storm is approaching,
+        <strong>how easy is it to reach a designated evacuation center?</strong>
+      </p>
+      <p>
+        NYCHA, the New York City Housing Authority, operates hundreds of developments across
+        all five boroughs, housing hundreds of thousands of residents who may face additional
+        challenges during evacuation, older adults, people with disabilities, and households
+        with fewer transportation options.
+      </p>
+      <p>
+        This project asks: <strong>which NYCHA developments face the greatest evacuation
+        disadvantage during hurricanes</strong> — and what happens when transit access
+        is factored in?
+      </p>
+      <p class="hint">
+        🖱 Scroll through the steps below.
+        <strong>Hover over any dot</strong> on the map to see details about that development.
+      </p>
+    </div>
+  </section>
+
+  <!-- ========================================================
+    SCROLLYTELLING — sticky map + scrollable steps
+  ======================================================== -->
+  <main class="scroll-container">
+
+    <!-- Sticky map panel (right side) -->
+    <div class="map-sticky">
+      <div id="map"></div>
+      <div class="map-prompt">Hover over a dot to explore</div>
+      <div id="map-legend"></div>
+      <div id="map-tooltip"></div>
+    </div>
+
+    <!-- Scrollable step cards (left side) -->
+    <div class="steps">
+
+      <!-- STEP 1 -->
+      <div class="step" data-step="1">
+        <div class="step-content">
+          <span class="step-label">Step 1 of 5</span>
+          <h2>NYCHA developments are deeply tied to the city's hurricane risk geography</h2>
+          <p>
+            The first step is to place NYCHA developments in the context of New York City's
+            five boroughs. Public housing is not evenly distributed — a noticeable share sits
+            in coastal or low-lying parts of the city, especially along
+            <strong>southern Brooklyn, parts of Queens, Lower Manhattan, and Staten Island.</strong>
+          </p>
+          <p>
+            This matters because it shows that hurricane preparedness for public housing is
+            not a niche problem. It is woven into the geography of coastal exposure itself.
+          </p>
+        </div>
+      </div>
+
+      <!-- STEP 2 -->
+      <div class="step" data-step="2">
+        <div class="step-content">
+          <span class="step-label">Step 2 of 5</span>
+          <h2>Exposure does not automatically mean access</h2>
+          <p>
+            Designated hurricane evacuation centers were mapped with a
+            <strong>0.5-mile buffer</strong> as a proxy for walking proximity.
+            NYCHA developments falling outside that buffer represent an
+            access gap, places where the burden of reaching safety falls more
+            heavily on residents themselves.
+          </p>
+
+          <!-- Stat box: filled dynamically by script.js -->
+          <div class="stat-box" id="stat-box-gap">
+            <span class="stat-number">—</span>
+            <span class="stat-label">Loading access gap count…</span>
+          </div>
+
+          <p>
+            The pattern shows that evacuation infrastructure is not evenly aligned
+            with where vulnerable housing is located.
+          </p>
+        </div>
+      </div>
+
+      <!-- STEP 3 -->
+      <div class="step" data-step="3">
+        <div class="step-content">
+          <span class="step-label">Step 3 of 5</span>
+          <h2>The access gap is sharpest along the coast</h2>
+          <p>
+            Zooming into South Brooklyn reveals the spatial logic of the gap:
+            developments closest to the water are often the farthest from official
+            evacuation infrastructure.
+          </p>
+          <p>
+            In places like <strong>Coney Island and Red Hook</strong>, coastal exposure
+            and distance from evacuation centers converge — creating the highest
+            concentration of evacuation disadvantage in the city.
+          </p>
+        </div>
+      </div>
+
+      <!-- STEP 4 -->
+      <div class="step" data-step="4">
+        <div class="step-content">
+          <span class="step-label">Step 4 of 5</span>
+          <h2>From spatial pattern to planning priority</h2>
+          <p>
+            The analysis points to four geographic clusters where evacuation planning
+            investment is most urgently needed:
+            the <strong>South Bronx, southern Brooklyn, southeast Queens,
+            and Staten Island's North Shore.</strong>
+          </p>
+          <p>
+            These are places where NYCHA density, coastal risk, and access gaps
+            converge, and where targeted outreach, shelter capacity, and
+            transportation planning could make the greatest difference.
+          </p>
+        </div>
+      </div>
+
+      <!-- STEP 5 -->
+      <div class="step" data-step="5">
+        <div class="step-content">
+          <span class="step-label">Step 5 of 5</span>
+          <h2>When distance compounds distance</h2>
+          <p>
+            For many NYCHA residents, the challenge is not just one gap — it is
+            two gaps stacked together. Some developments are located both
+            <strong>outside the 0.5-mile reach of an evacuation center</strong> and
+            <strong>outside the 0.25-mile walkable range of a subway station.</strong>
+          </p>
+          <p>
+            During a hurricane, public transit is typically suspended before landfall.
+            For residents without a car, walking becomes the only realistic option.
+            These <em>doubly isolated</em> developments face the steepest evacuation
+            burden in the entire city.
+          </p>
+
+          <!-- Stat box: filled dynamically by script.js (from sampled data) -->
+          <div class="stat-box" id="stat-box-isolated">
+            <span class="stat-number">—</span>
+            <span class="stat-label">Loading…</span>
+          </div>
+
+          <!-- Full QGIS finding (hardcoded from complete dataset analysis) -->
+          <div class="finding-box">
+            📍 A full spatial analysis using <strong>QGIS across all NYCHA developments
+            citywide</strong> identifies <strong>132 doubly isolated developments</strong> —
+            concentrated in southern Brooklyn, southeast Queens, and Staten Island,
+            where the need for targeted evacuation planning is most acute.
+          </div>
+
+          <p>
+            These are not scattered randomly. They cluster in places where coastal
+            exposure, sparse transit, and access gaps combine to create the sharpest
+            evacuation inequity in New York.
+          </p>
+        </div>
+      </div>
+
+    </div><!-- end .steps -->
+
+  </main><!-- end .scroll-container -->
+
+  <!-- ========================================================
+    METHODS SECTION
+  ======================================================== -->
+  <section class="methods">
+    <div class="methods-inner">
+      <h2>How the analysis was built</h2>
+      <div class="methods-grid">
+
+        <div class="method-card">
+          <div class="method-icon">🗄</div>
+          <h3>Data Sources</h3>
+          <p>
+            Three public datasets from
+            <a href="https://opendata.cityofnewyork.us/" target="_blank">NYC Open Data</a>:
+            <a href="https://data.cityofnewyork.us/Housing-Development/NYCHA-Development-Data-Book/evjd-dqpz" target="_blank">NYCHA Public Housing Developments</a>,
+            <a href="https://data.cityofnewyork.us/Public-Safety/Hurricane-Evacuation-Centers/ayer-cga7" target="_blank">Hurricane Evacuation Centers</a>,
+            and <a href="https://data.cityofnewyork.us/Transportation/Subway-Stations/arq3-7z49" target="_blank">Subway Stations</a>.
+            Representative samples are embedded in the code for live computation.
+          </p>
+        </div>
+
+        <div class="method-card">
+          <div class="method-icon">⭕</div>
+          <h3>Buffer Analysis</h3>
+          <p>
+            A 0.5-mile buffer was generated around each evacuation center using
+            <a href="https://turfjs.org/" target="_blank">Turf.js</a>,
+            accounting for real geographic distance via Haversine calculation.
+            A 0.25-mile subway walkshed buffer was applied using the same method.
+          </p>
+        </div>
+
+        <div class="method-card">
+          <div class="method-icon">🗺</div>
+          <h3>QGIS Spatial Analysis</h3>
+          <p>
+            The complete spatial workflow — reprojection to EPSG:2263 (NY State Plane),
+            buffer generation, Difference and Intersection tools — was performed in
+            <a href="https://qgis.org/" target="_blank">QGIS</a>
+            on the full citywide NYCHA dataset, identifying
+            <strong style="color:#f4a261">132 doubly isolated developments.</strong>
+          </p>
+        </div>
+
+        <div class="method-card">
+          <div class="method-icon">🔴</div>
+          <h3>Double Isolation</h3>
+          <p>
+            Developments were flagged as doubly isolated if they fell outside
+            <em>both</em> the evacuation center buffer and the subway walkshed —
+            representing the most acute evacuation disadvantage in the dataset.
+            Results were verified against the full QGIS analysis.
+          </p>
+        </div>
+
+      </div>
+    </div>
+  </section>
+
+  <!-- ========================================================
+    FOOTER
+  ======================================================== -->
+  <footer>
+    Data:
+    <a href="https://opendata.cityofnewyork.us/" target="_blank">NYC Open Data</a>
+    &nbsp;·&nbsp;
+    Map:
+    <a href="https://docs.mapbox.com/mapbox-gl-js/" target="_blank">Mapbox GL JS</a>
+    &nbsp;·&nbsp;
+    Analysis:
+    <a href="https://turfjs.org/" target="_blank">Turf.js</a> &amp;
+    <a href="https://qgis.org/" target="_blank">QGIS</a>
+    &nbsp;·&nbsp;
+    By Allison Han · NYU Web Mapping · 2026
+  </footer>
+
+  <!-- Scripts — load order: Mapbox → Turf → our script -->
+  <script src="https://api.mapbox.com/mapbox-gl-js/v3.3.0/mapbox-gl.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/Turf.js/6.5.0/turf.min.js"></script>
+  <script src="script.js"></script>
+
+</body>
+</html>
